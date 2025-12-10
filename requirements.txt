@@ -1,0 +1,7 @@
+﻿requests
+beautifulsoup4
+tqdm
+sentence-transformers
+numpy
+openai
+ollama
