@@ -12,28 +12,16 @@ Asynchronous AI crawler tuned for LLM/AI topics with a GPU-first RAG stack and c
   ```bash
   pip install -r requirements.txt
   ```
-- Install Playwright browser once (for JS-rendered pages):
-  ```bash
-  python -m playwright install chromium
-  ```
 - GPU is auto-detected (`cuda` > `mps` > `cpu`) for embeddings.
 
 ## 1) Domain-Aware Crawl (async)
 Prioritizes LLM/AI concepts: DSPY, Reflexion, RAG variants (Knowledge-oriented, Tok-RAG, UncertaintyRAG), knowledge injection (SFT, prompt distillation, graphs), judge models (G-Eval, Opik, Prometheus, MT-Bench, Chatbot Arena), hallucination checks (RAGTruth, SelfCheck, NLI/faithfulness), and datasets (GSM8K, ARC, TruthfulQA, HotpotQA, SQuAD). A zero-temperature judge model filters fragments; a verifier loop attempts to clarify unclear content. Reflexion logs self-repair actions (e.g., rotating User-Agent on 403/429).
 
 ```bash
-py -m src.main crawl \
-  --max-pages 120 \
-  --depth 2 \
-  --concurrency 6 \
-  --delay 0.8 \
-  --judge-llm ollama \
-  --judge-model mixtral:8x7b \
-  --output data/pages.jsonl
+py -m src.main crawl --max-pages 120 --depth 5 --concurrency 6 --delay 0.8 --judge-llm ollama --judge-model mixtral:8x7b --output data/pages.jsonl
 ```
 - Seeds default to major AI labs/blogs; stays within those domains and respects robots.txt.
 - Use `--judge-llm openai --judge-openai-model gpt-4o-mini` to judge via OpenAI, or `--judge-llm none` to rely on heuristics only.
-- For fresher XAI trends, include seeds like `https://arxiv.org/list/cs.AI/new`, `https://arxiv.org/list/cs.IR/new`, and `https://huggingface.co/blog`.
 
 ## 2) Build the Vector Index (GPU embeddings)
 ```bash
