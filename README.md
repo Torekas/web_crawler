@@ -1,47 +1,69 @@
-# AI Web Crawler + RAG
+# GPU-Ready AI Knowledge Agent (Crawl + RAG + Chat)
 
-Minimal crawler that harvests AI-related web pages and builds a local vector index you can query conversationally.
+Asynchronous AI crawler tuned for LLM/AI topics with a GPU-first RAG stack and conversational agent that keeps short- and long-term memory.
 
-## Setup
-- Python 3.10+ recommended (`py` launcher on Windows, or `python`/`python3` elsewhere).
-- Install deps: `pip install -r requirements.txt`
-- Chat LLM (default): install [Ollama](https://ollama.com/) and pull a model (e.g. `ollama pull mixtral:8x7b`), keep the service running.
-- Optional OpenAI fallback: set `OPENAI_API_KEY` (`setx OPENAI_API_KEY "sk-..."` on Windows PowerShell or `export OPENAI_API_KEY=...` on Unix shells).
+## GPU Setup
+- Python 3.10+
+- Install PyTorch with CUDA 11.8 (critical):
+  ```bash
+  pip install torch==2.3.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+  ```
+- Install the remaining deps:
+  ```bash
+  pip install -r requirements.txt
+  ```
+- Install Playwright browser once (for JS-rendered pages):
+  ```bash
+  python -m playwright install chromium
+  ```
+- GPU is auto-detected (`cuda` > `mps` > `cpu`) for embeddings.
 
-## 1) Crawl AI pages
+## 1) Domain-Aware Crawl (async)
+Prioritizes LLM/AI concepts: DSPY, Reflexion, RAG variants (Knowledge-oriented, Tok-RAG, UncertaintyRAG), knowledge injection (SFT, prompt distillation, graphs), judge models (G-Eval, Opik, Prometheus, MT-Bench, Chatbot Arena), hallucination checks (RAGTruth, SelfCheck, NLI/faithfulness), and datasets (GSM8K, ARC, TruthfulQA, HotpotQA, SQuAD). A zero-temperature judge model filters fragments; a verifier loop attempts to clarify unclear content. Reflexion logs self-repair actions (e.g., rotating User-Agent on 403/429).
+
 ```bash
-py -m src.main crawl --max-pages 80 --depth 2 --delay 1.0
+py -m src.main crawl \
+  --max-pages 120 \
+  --depth 2 \
+  --concurrency 6 \
+  --delay 0.8 \
+  --judge-llm ollama \
+  --judge-model mixtral:8x7b \
+  --output data/pages.jsonl
 ```
-- Seeds default to well-known AI sources (OpenAI, DeepMind, Anthropic, Stability AI, Microsoft Research, HuggingFace, Cohere, Google AI Blog).
-- Output is JSONL at `data/pages.jsonl`. Only AI-relevant pages are kept (keyword filter).
+- Seeds default to major AI labs/blogs; stays within those domains and respects robots.txt.
+- Use `--judge-llm openai --judge-openai-model gpt-4o-mini` to judge via OpenAI, or `--judge-llm none` to rely on heuristics only.
+- For fresher XAI trends, include seeds like `https://arxiv.org/list/cs.AI/new`, `https://arxiv.org/list/cs.IR/new`, and `https://huggingface.co/blog`.
 
-## 2) Build the vector index
+## 2) Build the Vector Index (GPU embeddings)
 ```bash
 py -m src.main index --pages data/pages.jsonl --index data/index.pkl.gz --model sentence-transformers/all-MiniLM-L6-v2
 ```
-- Text is chunked with overlap, embedded, and saved to the compressed index.
+- Text is chunked with overlap and embedded on GPU when available.
 
-## 3) Query / chat
-- Interactive chat (defaults to Ollama + mixtral:8x7b):
+## 3) Conversational RAG with Memory
+Natural chat that uses retrieval + long-term reflections (from crawler and prior chats) + short-term history. Answers cite sources `[n]` and will propose crawl/verification steps if context is missing.
 ```bash
 py -m src.main chat --index data/index.pkl.gz --top-k 4 --llm ollama --ollama-model mixtral:8x7b
 ```
-- Use OpenAI instead:
+- OpenAI instead:
 ```bash
 py -m src.main chat --index data/index.pkl.gz --top-k 4 --llm openai --openai-model gpt-4o-mini
 ```
-- Single-shot search:
+- Single-shot search (no chat/memory):
 ```bash
-py -m src.main search --index data/index.pkl.gz --query "latest transformer efficiency tricks"
+py -m src.main search --index data/index.pkl.gz --query "latest reflexion-based RAG improvements"
 ```
 
-## Customizing
-- Add/remove seed URLs: `--seeds https://example.com https://another.ai`
-- Increase coverage: bump `--max-pages` and `--depth` (respect crawl politeness; default 1s delay).
-- Embeddings: swap models with `--model` during indexing/search (keeps cache per model).
-- Chat model: pick any Ollama model via `--ollama-model` (default mixtral:8x7b) or switch to OpenAI via `--llm openai`.
+## Agent Behaviors
+- Async crawl with politeness delay and concurrency control.
+- Domain judge (temperature 0.0) + verification loop for unclear/contradictory fragments.
+- Reflexion/self-repair: records failure reasons and retries with alternative strategies.
+- DSPY-style prompt separation (`src/prompts.py`) and centralized LLM client (`src/llm.py`).
+- Memory:
+  - Long-term: `data/memory_longterm.jsonl` stores reflections and chat summaries.
+  - Short-term: rolling window of recent turns for conversational grounding.
 
 ## Notes
-- The crawler checks `robots.txt`, skips binary assets, and de-duplicates URLs.
-- Data and index files are git-ignored under `data/`.
-- For production, consider running behind a proxy cache, persisting raw HTML, and adding retries/backoff.
+- Data files live under `data/` (git-ignored).
+- If the LLM backend is unavailable during chat, the agent falls back to showing top contexts.

@@ -15,7 +15,11 @@ def make_parser() -> argparse.ArgumentParser:
     crawl_p.add_argument("--max-pages", type=int, default=80, help="Maximum number of pages to capture")
     crawl_p.add_argument("--depth", type=int, default=2, help="Maximum crawl depth from seeds")
     crawl_p.add_argument("--delay", type=float, default=1.0, help="Delay between requests (seconds)")
+    crawl_p.add_argument("--concurrency", type=int, default=4, help="Number of concurrent fetchers (async)")
     crawl_p.add_argument("--output", type=Path, default=Path("data/pages.jsonl"), help="Where to store captured pages")
+    crawl_p.add_argument("--judge-llm", choices=["ollama", "openai", "none"], default="ollama", help="Use LLM judge for filtering")
+    crawl_p.add_argument("--judge-model", default="mixtral:8x7b", help="Model for judge backend (ollama)")
+    crawl_p.add_argument("--judge-openai-model", default="gpt-4o-mini", help="Model for judge backend (openai)")
 
     index_p = sub.add_parser("index", help="Build vector index from crawled pages")
     index_p.add_argument("--pages", type=Path, default=Path("data/pages.jsonl"), help="Input JSONL from crawler")
@@ -55,6 +59,10 @@ def main() -> None:
             max_depth=args.depth,
             delay_seconds=args.delay,
             output_path=args.output,
+            concurrency=args.concurrency,
+            llm_backend=None if args.judge_llm == "none" else args.judge_llm,
+            llm_model=args.judge_model,
+            openai_model=args.judge_openai_model,
         )
     elif args.command == "index":
         rag.build_index(

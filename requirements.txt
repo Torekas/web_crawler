@@ -1,7 +1,13 @@
-﻿requests
+--extra-index-url https://download.pytorch.org/whl/cu118
+torch==2.3.0+cu118
+torchvision==0.18.0+cu118
+torchaudio==2.3.0+cu118
+aiohttp
+requests
 beautifulsoup4
 tqdm
 sentence-transformers
 numpy
 openai
 ollama
+playwright
