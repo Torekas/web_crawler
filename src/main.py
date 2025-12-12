@@ -20,24 +20,6 @@ def make_parser() -> argparse.ArgumentParser:
     crawl_p.add_argument("--judge-llm", choices=["ollama", "openai", "none"], default="ollama", help="Use LLM judge for filtering")
     crawl_p.add_argument("--judge-model", default="mixtral:8x7b", help="Model for judge backend (ollama)")
     crawl_p.add_argument("--judge-openai-model", default="gpt-4o-mini", help="Model for judge backend (openai)")
-    crawl_p.add_argument(
-        "--auto-seed",
-        action="store_true",
-        help="Discover and append new seeds via sitemap/RSS/search before crawling",
-    )
-    crawl_p.add_argument("--auto-seed-max", type=int, default=25, help="Maximum number of new seeds to add")
-    crawl_p.add_argument(
-        "--auto-seed-query",
-        action="append",
-        dest="auto_seed_queries",
-        help="Additional search query for auto-seed discovery (can repeat)",
-    )
-    crawl_p.add_argument(
-        "--auto-seed-per-source",
-        type=int,
-        default=30,
-        help="Per-source cap when scraping sitemap/RSS/search results",
-    )
 
     index_p = sub.add_parser("index", help="Build vector index from crawled pages")
     index_p.add_argument("--pages", type=Path, default=Path("data/pages.jsonl"), help="Input JSONL from crawler")
@@ -81,10 +63,6 @@ def main() -> None:
             llm_backend=None if args.judge_llm == "none" else args.judge_llm,
             llm_model=args.judge_model,
             openai_model=args.judge_openai_model,
-            auto_seed=args.auto_seed,
-            auto_seed_max=args.auto_seed_max,
-            auto_seed_queries=args.auto_seed_queries,
-            auto_seed_per_source=args.auto_seed_per_source,
         )
     elif args.command == "index":
         rag.build_index(
