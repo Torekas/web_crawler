@@ -172,8 +172,8 @@ def format_context(results: List[Tuple[float, Chunk]]) -> str:
 
 def _build_chat_context(results: List[Tuple[float, Chunk]]) -> str:
     return "\n\n".join(
-        f"[{idx}] {chunk.title or 'Untitled'} ({chunk.url})\nFetched: {chunk.fetched_at}\n{chunk.text}"
-        for idx, (_, chunk) in enumerate(results, start=1)
+        f"[{idx}] score={score:.3f} {chunk.title or 'Untitled'} ({chunk.url})\nFetched: {chunk.fetched_at}\n{chunk.text}"
+        for idx, (score, chunk) in enumerate(results, start=1)
     )
 
 
@@ -210,13 +210,19 @@ class ConversationalRAGAgent:
         long_term = "\n".join(f"- {e.content}" for e in reflections) or "none"
         conversation = self.short_memory.conversation_text() or "none"
         context_block = _build_chat_context(self.last_results)
+        scores = [score for score, _ in self.last_results]
+        confidence_note = "none"
+        if scores:
+            confidence_note = f"max={max(scores):.3f}, avg={float(np.mean(scores)):.3f}"
         user_content = (
             f"Retrieved context (with [n] references):\n{context_block}\n\n"
             f"Long-term memory (reflections/facts):\n{long_term}\n\n"
             f"Short-term conversation:\n{conversation}\n\n"
+            f"Retrieval confidence (dot-product scores): {confidence_note}\n\n"
             f"Question: {question}\n"
             "Use brief chain-of-thought internally, then answer with citations like [1]. "
             "Prefer fresher fetched_at entries and avoid unreachable links. "
+            "Provide 2-4 sentences of synthesis and finish with a 'Sources:' list of [n] Title - URL. "
             "If context is insufficient, suggest what to crawl or verify next."
         )
         return [
