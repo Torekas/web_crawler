@@ -345,12 +345,17 @@ class AsyncCrawler:
         self.llm_client = llm_client
 
         self.allowed_domains = {urlparse(seed).netloc.lower() for seed in seeds}
-        self.seen: Set[str] = load_existing(output_path)
+        # Track URLs already persisted on disk (for deduped writes) separately
+        # from URLs seen during this crawl run.
+        self.persisted: Set[str] = load_existing(output_path)
+        self.seen: Set[str] = set()
         self.robots = RobotsCache()
         self.memory = MemoryStore()
         self.reflexion = ReflexionLogger(self.memory)
         self.judge = DomainJudge(llm_client)
         self.write_lock = asyncio.Lock()
+        self.keep_count = 0
+        self.skip_count = 0
 
     async def crawl(self) -> List[Page]:
         queue: deque[Tuple[str, int]] = deque((seed, 0) for seed in self.seeds)
@@ -377,6 +382,14 @@ class AsyncCrawler:
                     await asyncio.sleep(self.delay_seconds)
 
         logger.info("Crawl finished: %d pages kept", len(pages))
+        logger.info(
+            "\nCrawl summary\n-------------\nVisited: %d (depth <= %d)\nKept: %d\nSkipped (judged): %d\nOutput: %s",
+            len(self.seen),
+            self.max_depth,
+            self.keep_count,
+            self.skip_count,
+            self.output_path,
+        )
         return pages
 
     async def _process_url(
@@ -400,7 +413,9 @@ class AsyncCrawler:
             return None
 
         text, title = clean_text(html)
-        if len(text.split()) < 60:
+        word_count = len(text.split())
+        if word_count < 60 and depth > 0:
+            self.reflexion.record(url, "short-text", "skipped")
             return None
 
         score = heuristic_relevance_score(text)
@@ -429,10 +444,16 @@ class AsyncCrawler:
         )
 
         if decision == "keep":
-            await self._persist_page(page)
-            logger.info("Captured (%s): %s", decision, url)
+            if page.url in self.persisted:
+                logger.info("Captured (existing, not re-saved): %s", url)
+            else:
+                await self._persist_page(page)
+                self.persisted.add(page.url)
+                logger.info("Captured (%s): %s", decision, url)
+            self.keep_count += 1
         else:
             self.reflexion.record(url, "filtered", note)
+            self.skip_count += 1
 
         return page, links, next_depth
 
@@ -447,7 +468,26 @@ class AsyncCrawler:
                 if resp.status >= 400:
                     self.reflexion.record(url, f"http {resp.status}", "skipped")
                     return None
-                return await resp.text()
+                text = await resp.text()
+                if text:
+                    return text
+        except aiohttp.ClientError as exc:
+            self.reflexion.record(url, "network", f"{exc}")
+        except Exception as exc:  # pragma: no cover - safety net
+            self.reflexion.record(url, "network-unknown", f"{exc}")
+
+        # Fallback to synchronous requests if aiohttp path failed or returned empty.
+        try:
+            import requests
+
+            resp = requests.get(url, headers=session.headers, timeout=self.timeout)
+            if resp.status_code >= 400:
+                self.reflexion.record(url, f"http {resp.status_code}", "fallback-sync-skipped")
+                return None
+            return resp.text
+        except Exception as exc:  # pragma: no cover - best-effort fallback
+            self.reflexion.record(url, "network-fallback", f"{exc}")
+            return None
         except aiohttp.ClientError as exc:
             self.reflexion.record(url, "network", f"{exc}")
             return None

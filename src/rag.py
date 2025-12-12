@@ -193,6 +193,7 @@ class ConversationalRAGAgent:
         freshness_half_life_days: float = 60.0,
         validate_urls: bool = True,
         memory_store: Optional[MemoryStore] = None,
+        display_char_limit: Optional[int] = None,
     ) -> None:
         self.index = index
         self.model_name = model_name or index["model_name"]
@@ -204,6 +205,7 @@ class ConversationalRAGAgent:
         self.memory_store = memory_store or MemoryStore()
         self.short_memory = ShortTermMemory()
         self.last_results: List[Tuple[float, Chunk]] = []
+        self.display_char_limit = display_char_limit
 
     def _build_messages(self, question: str) -> List[dict]:
         reflections = self.memory_store.recent(kind="reflection", limit=5)
@@ -215,9 +217,9 @@ class ConversationalRAGAgent:
             f"Long-term memory (reflections/facts):\n{long_term}\n\n"
             f"Short-term conversation:\n{conversation}\n\n"
             f"Question: {question}\n"
-            "Use brief chain-of-thought internally, then answer with citations like [1]. "
-            "Prefer fresher fetched_at entries and avoid unreachable links. "
-            "If context is insufficient, suggest what to crawl or verify next."
+            "Use brief chain-of-thought internally, then write a concise but fact-rich answer (2-6 sentences) weaving in concrete details from the references. "
+            "Cite sources inline as [n] and only rely on the provided references. Prefer fresher fetched_at entries and avoid unreachable links. "
+            "If context is insufficient, say so and propose what to crawl or verify next."
         )
         return [
             {"role": "system", "content": prompts.build_answer_system_prompt()},
@@ -280,6 +282,16 @@ class ConversationalRAGAgent:
         except Exception:
             return False
 
+    def _format_sources(self) -> str:
+        if not self.last_results:
+            return ""
+        lines = ["References:"]
+        for idx, (_, chunk) in enumerate(self.last_results, start=1):
+            title = chunk.title.strip() if chunk.title else "Untitled"
+            fetched = chunk.fetched_at or "unknown date"
+            lines.append(f"[{idx}] {title} — {chunk.url} (fetched {fetched})")
+        return "\n".join(lines)
+
     def answer(self, question: str) -> str:
         results = self.retrieve(question)
         if not results or results[0][0] < self.min_score:
@@ -294,14 +306,24 @@ class ConversationalRAGAgent:
 
         messages = self._build_messages(question)
         answer = self.llm_client.chat(messages, temperature=0.2)
+        sources_block = self._format_sources()
+        full_answer = f"Answer:\n{answer}\n\n{sources_block}" if sources_block else f"Answer:\n{answer}"
+
+        display_answer = full_answer
+        if self.display_char_limit and len(display_answer) > self.display_char_limit:
+            display_answer = display_answer[: self.display_char_limit].rstrip() + " ..."
+
         self.short_memory.add("user", question)
-        self.short_memory.add("assistant", answer)
+        self.short_memory.add("assistant", display_answer)
         self.memory_store.add(
             "conversation",
-            f"Q: {question}\nA: {answer}",
-            {"sources": [chunk.url for _, chunk in self.last_results]},
+            f"Q: {question}\nA: {full_answer}",
+            {
+                "sources": [chunk.url for _, chunk in self.last_results],
+                "display_preview": display_answer,
+            },
         )
-        return answer
+        return display_answer
 
 
 def interactive_chat(
