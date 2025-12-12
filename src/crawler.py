@@ -22,16 +22,71 @@ logger = logging.getLogger(__name__)
 
 # --- SEEDS: only reachable, crawlable entry pages to bootstrap depth ---
 DEFAULT_SEEDS = [
+    # Frameworks / tooling anchors
     "https://huggingface.co/blog",
     "https://cohere.com/blog",
-    "https://ai.meta.com/blog/",
-    "https://stability.ai/news",
     "https://blog.langchain.dev/",
     "https://www.llamaindex.ai/blog",
     "https://www.anyscale.com/blog",
     "https://www.databricks.com/blog/category/ai",
     "https://ai.googleblog.com/",
     "https://research.google/blog/",
+    "https://stability.ai/news",
+    # Core AI labs / model providers
+    "https://openai.com/blog",
+    "https://openai.com/research",
+    "https://openai.com/safety",
+    "https://openai.com/news",
+    "https://deepmind.google/discover/blog",
+    "https://blog.google/technology/ai",
+    "https://www.anthropic.com/news",
+    "https://www.anthropic.com/research",
+    "https://www.anthropic.com/safety",
+    "https://ai.meta.com/blog",
+    "https://ai.facebook.com/blog",
+    "https://blogs.microsoft.com/ai",
+    "https://techcommunity.microsoft.com/t5/azure-ai/bg-p/AzureAI",
+    "https://aws.amazon.com/blogs/machine-learning",
+    "https://www.amazon.science",
+    "https://machinelearning.apple.com",
+    "https://x.ai/blog",
+    # Research / academic news
+    "https://news.mit.edu/topic/artificial-intelligence2",
+    "https://ai.stanford.edu/blog",
+    "https://bair.berkeley.edu/blog",
+    "https://www.oxford-aiethics.ox.ac.uk/blog",
+    "https://news.harvard.edu/gazette/topic/artificial-intelligence",
+    # Industry / startup / business AI
+    "https://techcrunch.com/category/artificial-intelligence",
+    "https://venturebeat.com/ai",
+    "https://www.theinformation.com/artificial-intelligence",
+    "https://www.forbes.com/ai",
+    "https://www.bloomberg.com/ai",
+    # Dedicated AI portals
+    "https://www.artificialintelligence-news.com",
+    "https://aimagazine.com",
+    "https://www.therundown.ai",
+    "https://justainews.com",
+    "https://alignmentforum.org",
+    # Newsletters / high-signal curators
+    "https://tldr.tech/ai",
+    "https://www.superhuman.ai",
+    "https://importai.substack.com",
+    "https://www.bensbites.co",
+    "https://www.latent.space",
+    # Policy / safety / governance
+    "https://ainowinstitute.org",
+    "https://partnershiponai.org",
+    "https://www.nist.gov/artificial-intelligence",
+    "https://oecd.ai",
+    # Open source / engineering
+    "https://paperswithcode.com",
+    "https://github.com/trending?since=daily&spoken_language_code=&topic=machine-learning",
+    # Polish AI sources
+    "https://aioai.pl",
+    "https://haimagazine.com",
+    "https://spidersweb.pl/tag/sztuczna-inteligencja",
+    "https://antyweb.pl/tag/sztuczna-inteligencja",
 ]
 
 DEFAULT_DISCOVERY_QUERIES = [
