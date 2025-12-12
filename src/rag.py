@@ -6,11 +6,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
+from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 import requests
 import torch
 from sentence_transformers import SentenceTransformer
+from bs4 import BeautifulSoup
 
 from . import prompts
 from .llm import LLMClient
@@ -36,6 +38,7 @@ XAI_KEYWORDS = [
     "faithfulness",
     "trustworthy",
 ]
+NEWS_TRIGGERS = ("latest", "today", "recent", "news", "update", "updates", "release", "released", "announced")
 
 
 def resolve_device() -> str:
@@ -145,12 +148,13 @@ def search_index(
     query: str,
     top_k: int = 5,
     model_name: Optional[str] = None,
+    query_embedding: Optional[np.ndarray] = None,
 ) -> List[Tuple[float, Chunk]]:
     model_to_use = model_name or index["model_name"]
     stored_embeddings: np.ndarray = index["embeddings"]
     chunks: List[Chunk] = index["chunks"]
 
-    query_vec = embed_texts([query], model_name=model_to_use)[0]
+    query_vec = query_embedding if query_embedding is not None else embed_texts([query], model_name=model_to_use)[0]
     scores = np.dot(stored_embeddings, query_vec)
     top_indices = np.argsort(scores)[::-1][:top_k]
     return [(float(scores[i]), chunks[i]) for i in top_indices]
@@ -182,6 +186,109 @@ def _is_xai_relevant(text: str) -> bool:
     return any(term in lowered for term in XAI_KEYWORDS)
 
 
+def _strip_html(html: str) -> Tuple[str, str]:
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["script", "style", "noscript", "header", "footer", "nav", "aside"]):
+        tag.decompose()
+    title = soup.title.string.strip() if soup.title and soup.title.string else ""
+    text = soup.get_text(separator="\n")
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return "\n".join(lines), title
+
+
+class LiveNewsFetcher:
+    """Best-effort live fetcher to add fresh AI news snippets to retrieval."""
+
+    def __init__(
+        self,
+        model_name: str,
+        max_results: int = 4,
+        min_words: int = 80,
+        max_words: int = 1200,
+        timeout: int = 10,
+    ) -> None:
+        self.model_name = model_name
+        self.max_results = max_results
+        self.min_words = min_words
+        self.max_words = max_words
+        self.timeout = timeout
+        self.session = requests.Session()
+        self.headers = {"User-Agent": "AI-NewsRAG/0.4 (+https://github.com/Torekas/web_crawler)"}
+
+    def _decode_link(self, href: str) -> Optional[str]:
+        if "uddg=" in href:
+            qs = urlparse(href).query
+            decoded = parse_qs(qs).get("uddg", [])
+            if decoded:
+                return decoded[0]
+        return href
+
+    def _search_urls(self, query: str) -> List[str]:
+        try:
+            resp = self.session.get(
+                "https://duckduckgo.com/html",
+                params={"q": query, "ia": "web"},
+                headers=self.headers,
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            logger.debug("Live search failed: %s", exc)
+            return []
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        urls: List[str] = []
+        for anchor in soup.select("a.result__a"):
+            href = anchor.get("href", "")
+            if not href:
+                continue
+            decoded = self._decode_link(href)
+            if not decoded or not decoded.startswith(("http://", "https://")):
+                continue
+            if decoded in urls:
+                continue
+            urls.append(decoded)
+            if len(urls) >= self.max_results:
+                break
+        return urls
+
+    def _fetch_chunk(self, url: str) -> Optional[Chunk]:
+        try:
+            resp = self.session.get(url, headers=self.headers, timeout=self.timeout)
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            logger.debug("Live fetch failed for %s: %s", url, exc)
+            return None
+
+        text, title = _strip_html(resp.text)
+        words = text.split()
+        if len(words) < self.min_words:
+            return None
+        limited_text = " ".join(words[: self.max_words])
+        fetched_at = datetime.utcnow().replace(tzinfo=timezone.utc).isoformat()
+        return Chunk(text=limited_text, url=url, title=title, fetched_at=fetched_at)
+
+    def search(self, query: str, query_vec: np.ndarray) -> List[Tuple[float, Chunk]]:
+        urls = self._search_urls(query)
+        if not urls:
+            return []
+
+        chunks: List[Chunk] = []
+        for url in urls:
+            chunk = self._fetch_chunk(url)
+            if chunk:
+                chunks.append(chunk)
+
+        if not chunks:
+            return []
+
+        embeddings = embed_texts([c.text for c in chunks], model_name=self.model_name)
+        scores = np.dot(embeddings, query_vec)
+        scored = [(float(score), chunk) for score, chunk in zip(scores, chunks)]
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return scored
+
+
 class ConversationalRAGAgent:
     def __init__(
         self,
@@ -194,6 +301,7 @@ class ConversationalRAGAgent:
         validate_urls: bool = True,
         memory_store: Optional[MemoryStore] = None,
         display_char_limit: Optional[int] = None,
+        enable_live_news: bool = True,
     ) -> None:
         self.index = index
         self.model_name = model_name or index["model_name"]
@@ -206,6 +314,7 @@ class ConversationalRAGAgent:
         self.short_memory = ShortTermMemory()
         self.last_results: List[Tuple[float, Chunk]] = []
         self.display_char_limit = display_char_limit
+        self.live_fetcher = LiveNewsFetcher(self.model_name) if enable_live_news else None
 
     def _build_messages(self, question: str) -> List[dict]:
         reflections = self.memory_store.recent(kind="reflection", limit=5)
@@ -227,7 +336,14 @@ class ConversationalRAGAgent:
         ]
 
     def retrieve(self, question: str) -> List[Tuple[float, Chunk]]:
-        raw_results = search_index(self.index, question, top_k=max(self.top_k * 2, 6), model_name=self.model_name)
+        query_vec = embed_texts([question], model_name=self.model_name)[0]
+        raw_results = search_index(
+            self.index,
+            question,
+            top_k=max(self.top_k * 2, 6),
+            model_name=self.model_name,
+            query_embedding=query_vec,
+        )
         rescored: List[Tuple[float, Chunk]] = []
         now = datetime.now(timezone.utc)
 
@@ -260,15 +376,59 @@ class ConversationalRAGAgent:
                     continue
             filtered.append((sc, ch))
 
+        need_live = False
+        lower_q = question.lower()
+        if not filtered:
+            need_live = True
+        elif any(term in lower_q for term in NEWS_TRIGGERS):
+            need_live = True
+        else:
+            top_chunk = filtered[0][1] if filtered else rescored[0][1]
+            try:
+                dt = datetime.fromisoformat(top_chunk.fetched_at.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                age_days = (now - dt).total_seconds() / 86400.0
+                if age_days > 45:
+                    need_live = True
+            except Exception:
+                need_live = True
+
+        live_results: List[Tuple[float, Chunk]] = []
+        if need_live and self.live_fetcher:
+            try:
+                live_results = self.live_fetcher.search(question, query_vec=query_vec)
+            except Exception as exc:
+                logger.debug("Live news search failed: %s", exc)
+
+        combined: List[Tuple[float, Chunk]] = []
+        for score, chunk in filtered or rescored:
+            combined.append((score, chunk))
+        for score, chunk in live_results:
+            freshness = recency_weight(chunk.fetched_at)
+            combined.append((float(score + 0.15 * freshness), chunk))
+
+        deduped: Dict[str, Tuple[float, Chunk]] = {}
+        for score, chunk in combined:
+            if chunk.url in deduped:
+                if score > deduped[chunk.url][0]:
+                    deduped[chunk.url] = (score, chunk)
+            else:
+                deduped[chunk.url] = (score, chunk)
+
+        merged = list(deduped.values())
+        merged.sort(key=lambda x: x[0], reverse=True)
+        merged = merged[: self.top_k]
+
         if self.validate_urls:
             validated: List[Tuple[float, Chunk]] = []
-            for sc, ch in filtered or rescored:
+            for sc, ch in merged:
                 if self._is_url_reachable(ch.url):
                     validated.append((sc, ch))
             if validated:
-                filtered = validated
+                merged = validated
 
-        self.last_results = filtered or rescored
+        self.last_results = merged
         return self.last_results
 
     def _is_url_reachable(self, url: str, timeout: float = 4.0) -> bool:
@@ -289,7 +449,7 @@ class ConversationalRAGAgent:
         for idx, (_, chunk) in enumerate(self.last_results, start=1):
             title = chunk.title.strip() if chunk.title else "Untitled"
             fetched = chunk.fetched_at or "unknown date"
-            lines.append(f"[{idx}] {title} — {chunk.url} (fetched {fetched})")
+            lines.append(f"[{idx}] {title} - {chunk.url} (fetched {fetched})")
         return "\n".join(lines)
 
     def answer(self, question: str) -> str:

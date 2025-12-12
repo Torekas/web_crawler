@@ -2,10 +2,10 @@
 
 Async, domain-aware crawler and RAG stack tuned for LLM/AI topics. Captures curated pages, builds a GPU-ready index, and serves sourced answers with short- and long-term memory.
 
-## What’s inside
-- **Crawler**: Async fetch with polite delays, UA rotation, robots.txt respect, short-page guard, heuristic + optional LLM judge/verification, and a `requests` fallback when `aiohttp` fails. Deduped writes; seeds are re-visited each run for fresh links. Crawl summary logs visited/kept/skipped and output path.
+## What's inside
+- **Crawler**: Async fetch with polite delays, UA rotation, robots.txt respect, short-page guard, heuristic + optional LLM judge/verification, and a `requests` fallback when `aiohttp` fails. Deduped writes; seeds are re-visited each run for fresh links. Seeds cover OpenAI, Anthropic, xAI, Mistral, DeepMind, Google AI, Meta, HF, Cohere, LangChain, LlamaIndex, Anyscale, Databricks, Microsoft, NVIDIA, AWS.
 - **Index**: SentenceTransformer embeddings (GPU preferred), chunking with overlap and minimum-word filtering.
-- **Chat**: Retrieval + recency re-rank + URL validation. Answers are prefixed with `Answer:` and include inline `[n]` citations plus a “References” block with titles, links, and fetched times. Full answers are stored in long-term memory even if the UI truncates the display.
+- **Chat**: Retrieval + recency re-rank + URL validation. When a query looks newsy or the index is stale, it runs a live DuckDuckGo HTML search and scrapes top pages for fresh context. Answers are prefixed with `Answer:` and include inline `[n]` citations plus a References block with titles, links, and fetched times. Full answers are stored in long-term memory even if the UI truncates the display.
 - **Memory**: `data/memory_longterm.jsonl` keeps reflections and conversations; short-term memory grounds the current chat.
 
 ## Setup
@@ -24,7 +24,7 @@ Async, domain-aware crawler and RAG stack tuned for LLM/AI topics. Captures cura
 ```bash
 py -m src.main crawl --max-pages 120 --depth 5 --concurrency 6 --delay 0.8 --judge-llm ollama --judge-model mixtral:8x7b --output data/pages.jsonl
 ```
-- Seeds default to major AI labs/blogs; stays within allowed domains and respects robots.txt.
+- Seeds default to major AI labs/blogs listed above; stays within allowed domains and respects robots.txt.
 - Judge options: `--judge-llm openai --judge-openai-model gpt-4o-mini` or `--judge-llm none` to rely on heuristics only.
 - Short pages at depth 0 (seeds) are kept to enable link expansion; deeper pages under 60 words are skipped with a reflexion note.
 
@@ -47,9 +47,18 @@ py -m src.main chat --index data/index.pkl.gz --top-k 4 --llm openai --openai-mo
 py -m src.main search --index data/index.pkl.gz --query "latest reflexion-based RAG improvements"
 ```
 - Chat output format:
-  - `Answer:` section (2–6 sentences, fact-rich, cites `[n]`)
+  - `Answer:` section (2-6 sentences, fact-rich, cites `[n]`)
   - `References:` block listing numbered titles, URLs, and `fetched_at`
   - If display is truncated, the full answer still persists to long-term memory.
+
+### Fresh AI news
+- The chat agent auto-adds live search + page scraping when questions look newsy (“latest”, “recent”, “released”, “announced”) or when indexed hits are stale, so queries like “What’s new from xAI?” or “ChatGPT 5.2 release” pull fresher sources.
+- The crawler can also pull fresh seeds from DuckDuckGo: it defaults to news queries for OpenAI/Anthropic/xAI/Google/Meta/etc.; use `--no-discover-news` to disable or `--news-queries "custom query here"` to override.
+- For the strongest coverage, re-run the crawler to refresh `data/pages.jsonl` before chatting:
+  ```bash
+  py -m src.main crawl --max-pages 160 --depth 4 --concurrency 6 --delay 0.8 --judge-llm ollama --judge-model mixtral:8x7b --output data/pages.jsonl
+  py -m src.main index --pages data/pages.jsonl --index data/index.pkl.gz
+  ```
 
 ## Data & logs
 - `data/pages.jsonl`: Captured pages (deduped appends).

@@ -20,6 +20,10 @@ def make_parser() -> argparse.ArgumentParser:
     crawl_p.add_argument("--judge-llm", choices=["ollama", "openai", "none"], default="ollama", help="Use LLM judge for filtering")
     crawl_p.add_argument("--judge-model", default="mixtral:8x7b", help="Model for judge backend (ollama)")
     crawl_p.add_argument("--judge-openai-model", default="gpt-4o-mini", help="Model for judge backend (openai)")
+    crawl_p.add_argument("--discover-news", dest="discover_news", action="store_true", default=True, help="Enable DuckDuckGo news discovery seeds")
+    crawl_p.add_argument("--no-discover-news", dest="discover_news", action="store_false", help="Disable news discovery seeds")
+    crawl_p.add_argument("--news-queries", nargs="+", default=None, help="Custom news discovery queries")
+    crawl_p.add_argument("--news-per-query", type=int, default=6, help="How many results to add per news query")
 
     index_p = sub.add_parser("index", help="Build vector index from crawled pages")
     index_p.add_argument("--pages", type=Path, default=Path("data/pages.jsonl"), help="Input JSONL from crawler")
@@ -63,6 +67,9 @@ def main() -> None:
             llm_backend=None if args.judge_llm == "none" else args.judge_llm,
             llm_model=args.judge_model,
             openai_model=args.judge_openai_model,
+            discover_news=args.discover_news,
+            news_queries=args.news_queries,
+            news_per_query=args.news_per_query,
         )
     elif args.command == "index":
         rag.build_index(

@@ -1,16 +1,18 @@
 import asyncio
 import json
 import logging
+import random
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, List, Optional, Set, Tuple
 from urllib import robotparser
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import aiohttp
 from bs4 import BeautifulSoup
+import requests
 
 from . import prompts
 from .llm import LLMClient, safe_llm_call
@@ -22,6 +24,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_SEEDS = [
     "https://huggingface.co/blog",
     "https://cohere.com/blog",
+    "https://openai.com/blog",
+    "https://www.anthropic.com/news",
+    "https://x.ai/blog",
+    "https://mistral.ai/news",
     "https://ai.meta.com/blog/",
     "https://stability.ai/news",
     "https://blog.langchain.dev/",
@@ -30,6 +36,25 @@ DEFAULT_SEEDS = [
     "https://www.databricks.com/blog/category/ai",
     "https://ai.googleblog.com/",
     "https://research.google/blog/",
+    "https://deepmind.google/discover/blog",
+    "https://blog.google/technology/ai/",
+    "https://news.microsoft.com/ai/",
+    "https://aws.amazon.com/blogs/machine-learning/",
+    "https://developer.nvidia.com/blog/tag/ai/",
+]
+
+DEFAULT_NEWS_QUERIES = [
+    "latest AI news December 2025",
+    "OpenAI December 2025 announcements",
+    "Anthropic December 2025 news",
+    "xAI Grok December 2025",
+    "Google DeepMind December 2025",
+    "Google AI December 2025",
+    "Meta AI December 2025",
+    "Mistral AI December 2025 release",
+    "Hugging Face December 2025 model",
+    "Llama 3 December 2025",
+    "Claude December 2025 update",
 ]
 
 # --- KEYWORDS: Rozszerzono o terminy agentowe i reasoning ---
@@ -231,6 +256,58 @@ def extract_links(soup: BeautifulSoup, base_url: str) -> List[str]:
         absolute = urljoin(base_url, href)
         links.append(absolute.split("#")[0])
     return links
+
+
+def _decode_duckduckgo_link(href: str) -> str:
+    if "uddg=" in href:
+        qs = urlparse(href).query
+        decoded = parse_qs(qs).get("uddg", [])
+        if decoded:
+            return decoded[0]
+    return href
+
+
+def discover_news_seeds(
+    news_queries: Iterable[str],
+    per_query: int = 6,
+    timeout: int = 10,
+    user_agents: Optional[List[str]] = None,
+) -> List[str]:
+    headers_list = user_agents or USER_AGENTS
+    session = requests.Session()
+    discovered: List[str] = []
+    for query in news_queries:
+        headers = {"User-Agent": random.choice(headers_list)}
+        try:
+            resp = session.get(
+                "https://duckduckgo.com/html",
+                params={"q": query, "ia": "web"},
+                headers=headers,
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            logger.debug("Discovery failed for '%s': %s", query, exc)
+            continue
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for anchor in soup.select("a.result__a"):
+            href = anchor.get("href", "")
+            if not href:
+                continue
+            decoded = _decode_duckduckgo_link(href)
+            if not decoded.startswith(("http://", "https://")):
+                continue
+            if any(decoded.lower().endswith(ext) for ext in SKIP_EXTENSIONS):
+                continue
+            if decoded in discovered:
+                continue
+            discovered.append(decoded)
+            if len(discovered) >= per_query * len(news_queries):
+                break
+        if len(discovered) >= per_query * len(news_queries):
+            break
+    return discovered
 
 
 def should_visit(url: str, allowed_domains: Set[str]) -> bool:
@@ -508,12 +585,26 @@ async def crawl_async(
     llm_backend: Optional[str] = None,
     llm_model: str = "mixtral:8x7b",
     openai_model: str = "gpt-4o-mini",
+    discover_news: bool = True,
+    news_queries: Optional[Iterable[str]] = None,
+    news_per_query: int = 6,
 ) -> List[Page]:
     llm_client = None
     if llm_backend in {"ollama", "openai"}:
         llm_client = LLMClient(backend=llm_backend, model=llm_model, openai_model=openai_model)
+    seeds_list = list(seeds)
+    if discover_news:
+        extra = discover_news_seeds(
+            news_queries=news_queries or DEFAULT_NEWS_QUERIES,
+            per_query=news_per_query,
+            timeout=timeout,
+            user_agents=USER_AGENTS,
+        )
+        for url in extra:
+            if url not in seeds_list:
+                seeds_list.append(url)
     crawler = AsyncCrawler(
-        seeds=seeds,
+        seeds=seeds_list,
         max_pages=max_pages,
         max_depth=max_depth,
         delay_seconds=delay_seconds,
@@ -536,6 +627,9 @@ def crawl(
     llm_backend: Optional[str] = None,
     llm_model: str = "mixtral:8x7b",
     openai_model: str = "gpt-4o-mini",
+    discover_news: bool = True,
+    news_queries: Optional[Iterable[str]] = None,
+    news_per_query: int = 6,
 ) -> List[Page]:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     return asyncio.run(
@@ -550,6 +644,9 @@ def crawl(
             llm_backend=llm_backend,
             llm_model=llm_model,
             openai_model=openai_model,
+            discover_news=discover_news,
+            news_queries=news_queries,
+            news_per_query=news_per_query,
         )
     )
 
@@ -564,6 +661,9 @@ def run_from_cli(
     llm_backend: Optional[str] = None,
     llm_model: str = "mixtral:8x7b",
     openai_model: str = "gpt-4o-mini",
+    discover_news: bool = True,
+    news_queries: Optional[List[str]] = None,
+    news_per_query: int = 6,
 ) -> None:
     crawl(
         seeds=seeds or DEFAULT_SEEDS,
@@ -575,6 +675,9 @@ def run_from_cli(
         llm_backend=llm_backend,
         llm_model=llm_model,
         openai_model=openai_model,
+        discover_news=discover_news,
+        news_queries=news_queries,
+        news_per_query=news_per_query,
     )
 
 
