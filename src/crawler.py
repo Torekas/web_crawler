@@ -186,6 +186,7 @@ SKIP_EXTENSIONS = {
 
 # --- USER AGENTS: Rotacja, aby uniknąć blokowania (429 Too Many Requests) ---
 DEFAULT_USER_AGENT = "AI-KnowledgeCrawler/0.3-GPU (+https://github.com/Torekas/web_crawler; bot@example.com)"
+MAX_HTTP_RETRIES = 3
 USER_AGENTS = [
     DEFAULT_USER_AGENT,
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
@@ -194,9 +195,22 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
     "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36",
-    "Googlebot/2.1 (+http://www.google.com/bot.html)",
-    "DuckDuckBot/1.0; (+http://duckduckgo.com/duckduckbot.html)",
 ]
+
+COMMON_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "Pragma": "no-cache",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+
+def build_headers(user_agent: str) -> dict:
+    headers = COMMON_HEADERS.copy()
+    headers["User-Agent"] = user_agent
+    return headers
 
 
 @dataclass
@@ -277,7 +291,7 @@ def discover_news_seeds(
     session = requests.Session()
     discovered: List[str] = []
     for query in news_queries:
-        headers = {"User-Agent": random.choice(headers_list)}
+        headers = build_headers(random.choice(headers_list))
         try:
             resp = session.get(
                 "https://duckduckgo.com/html",
@@ -439,7 +453,7 @@ class AsyncCrawler:
         pages: List[Page] = []
 
         timeout = aiohttp.ClientTimeout(total=self.timeout)
-        headers = {"User-Agent": DEFAULT_USER_AGENT}
+        headers = build_headers(DEFAULT_USER_AGENT)
         async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
             while queue and len(pages) < self.max_pages:
                 batch: List[Tuple[str, int]] = []
@@ -535,12 +549,24 @@ class AsyncCrawler:
         return page, links, next_depth
 
     async def _fetch_html(self, url: str, session: aiohttp.ClientSession, attempt: int = 1) -> Optional[str]:
+        user_agent = USER_AGENTS[min(attempt - 1, len(USER_AGENTS) - 1)]
+        headers = build_headers(user_agent)
         try:
-            async with session.get(url) as resp:
-                if resp.status in {403, 429} and attempt < len(USER_AGENTS):
-                    new_agent = USER_AGENTS[attempt % len(USER_AGENTS)]
-                    session.headers.update({"User-Agent": new_agent})
-                    self.reflexion.record(url, f"http {resp.status}", f"retry with UA {new_agent}")
+            async with session.get(url, headers=headers) as resp:
+                if resp.status in {403, 429} and attempt < MAX_HTTP_RETRIES:
+                    retry_after_header = resp.headers.get("Retry-After")
+                    try:
+                        retry_after = float(retry_after_header) if retry_after_header is not None else 0.0
+                    except ValueError:
+                        retry_after = 0.0
+                    backoff_seconds = max(self.delay_seconds, 0.5 * attempt, retry_after)
+                    self.reflexion.record(
+                        url,
+                        f"http {resp.status}",
+                        f"backoff {backoff_seconds:.1f}s then retry UA {user_agent}",
+                    )
+                    if backoff_seconds > 0:
+                        await asyncio.sleep(backoff_seconds)
                     return await self._fetch_html(url, session, attempt + 1)
                 if resp.status >= 400:
                     self.reflexion.record(url, f"http {resp.status}", "skipped")
@@ -557,7 +583,7 @@ class AsyncCrawler:
         try:
             import requests
 
-            resp = requests.get(url, headers=session.headers, timeout=self.timeout)
+            resp = requests.get(url, headers=headers, timeout=self.timeout)
             if resp.status_code >= 400:
                 self.reflexion.record(url, f"http {resp.status_code}", "fallback-sync-skipped")
                 return None

@@ -1,0 +1,95 @@
+crawler:
+  seeds:
+    - https://example.com
+  allowed_domains: []
+  denied_domains: []
+  allow_url_patterns: []
+  deny_url_patterns: []
+  max_depth: 2
+  max_pages: 20
+  strategy: bfs
+  user_agent: "crawl4ai-plus/0.1"
+  obey_robots: true
+  cache_dir: "data/cache"
+  content_cache_ttl: 86400
+  use_browser: true
+  topic_keywords:
+    - "artificial intelligence"
+    - " ai "
+    - "machine learning"
+    - " ml "
+    - "deep learning"
+    - "llm"
+    - "language model"
+    - "foundation model"
+    - "genai"
+    - "agentic workflows"
+    - "chain of thought"
+    - "reasoning models"
+    - "model alignment"
+    - "retrieval augmented generation"
+    - "vector database"
+    - "embedding model"
+    - "reranking"
+    - "multi-agent"
+  dynamic_wait_seconds: 2.0
+  infinite_scroll: false
+  scroll_timeout: 8.0
+  max_urls_per_domain: 50
+
+browser:
+  headless: true
+  proxy:
+  viewport: "1280,720"
+  cookies_path: "data/cookies.json"
+  stealth: true
+  js_wait: 2.0
+  scroll_pause: 0.2
+  screenshot_dir: "data/screenshots"
+
+storage:
+  db_url: "sqlite:///data/memory.db"
+  raw_html_dir: "data/raw_html"
+  markdown_dir: "data/markdown"
+  diagnostics_dir: "logs"
+  chroma_path: "data/chroma"
+
+rate_limits:
+  per_domain_delay: 1.0
+  max_concurrency: 4
+  max_retries: 3
+  backoff_base: 0.6
+  circuit_breaker_failures: 5
+  circuit_breaker_reset: 900
+
+extraction:
+  css_selectors: []
+  xpath_selectors: []
+  llm_schema:
+  enable_llm_extraction: false
+
+index:
+  embedding_backend: "hash"
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  chunk_size: 1200
+  chunk_overlap: 200
+  min_chunk_chars: 200
+  use_bm25_filter: false
+  bm25_top_k: 24
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  jwt_secret:
+  enable_jwt: false
+
+chat:
+  ollama_host: "http://localhost:11434"
+  ollama_model: "mixtral:8x7b"
+  top_k: 4
+
+webhook:
+  enabled: false
+  url:
+  max_attempts: 3
+  backoff_seconds: 1.5

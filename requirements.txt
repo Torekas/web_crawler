@@ -11,3 +11,15 @@ numpy
 openai
 ollama
 playwright
+httpx
+pyyaml
+sqlalchemy>=2.0
+chromadb
+fastapi
+uvicorn
+markdownify
+readability-lxml
+rank-bm25
+pytest
+pydantic
+lxml
