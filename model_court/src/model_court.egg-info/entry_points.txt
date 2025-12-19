@@ -1,0 +1,5 @@
+[console_scripts]
+model-court-demo = model_court.cli:main_demo
+model-court-export-golden = model_court.cli:main_export_golden
+model-court-query = model_court.cli:main_query
+model-court-run = model_court.cli:main_run

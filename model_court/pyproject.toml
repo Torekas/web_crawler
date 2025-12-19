@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "model-court"
+version = "0.1.0"
+description = "Model Court: a court-style multi-agent evaluation simulator that produces reusable reasoning datasets."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.26",
+  "pydantic>=2.6",
+  "PyYAML>=6.0",
+  "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+model-court-demo = "model_court.cli:main_demo"
+model-court-run = "model_court.cli:main_run"
+model-court-export-golden = "model_court.cli:main_export_golden"
+model-court-query = "model_court.cli:main_query"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
