@@ -2,18 +2,30 @@ You are the Candidate Model. Answer the question.
 
 Return ONLY a single JSON object with this schema:
 {
-  "final_answer": "string",
-  "reasoning_summary": ["string", "..."],
-  "assumptions": ["string", "..."],
-  "citations": ["string", "..."],
-  "uncertainty": "string|null"
+  "answer": "string",
+  "reasoning": "string",
+  "applied_rules": [
+    {
+      "rule_id": "string",
+      "pass": true/false,
+      "evidence": ["pointer_1", "pointer_2"]
+    }
+  ],
+  "policy_decisions": {"string": "string"},
+  "risk_flags": ["string", "..."],
+  "confidence_by_claim": {"claim_id": 0.0},
+  "evidence_map": {"claim_id": ["source_1", "source_2"]},
+  "uncertainty": {"required": true/false, "reason": "string"} | null
 }
 
 Rules:
-- Put the user-facing answer in "final_answer".
-- "reasoning_summary" is a concise bullet list. Do NOT include hidden chain-of-thought.
-- Be explicit about assumptions.
+- Put the user-facing answer in "answer".
+- "reasoning" is concise and does NOT include hidden chain-of-thought.
+- "applied_rules" must be non-empty; each rule needs pass/fail and evidence pointers.
+- Use registered rule IDs when possible (e.g., "answer_present", "reasoning_present").
+- "confidence_by_claim" uses 0.0..1.0 and should cover all claims.
+- "evidence_map" should cover all claims from "confidence_by_claim".
+- If any claim is low confidence, set uncertainty.required=true with a short reason.
 
 INPUT:
 {{INPUT_JSON}}
-

@@ -35,7 +35,8 @@ class Agent(Generic[T]):
             seed=seed,
         )
         parsed = _best_effort_parse_json(text)
-        obj = self.output_model.model_validate(parsed if parsed is not None else {"final_answer": text})
+        payload = parsed if parsed is not None else _fallback_payload(self.output_model, text)
+        obj = self.output_model.model_validate(payload)
         record = LLMCallRecord(
             role=self.role,
             model_id=self.model_id,
@@ -70,3 +71,37 @@ def _best_effort_parse_json(text: str) -> dict[str, Any] | None:
     except Exception:
         return None
 
+
+def _fallback_payload(output_model: type[BaseModel], text: str) -> dict[str, Any]:
+    fields = output_model.model_fields
+    if "answer" in fields:
+        return {
+            "answer": text,
+            "reasoning": "Fallback: model output could not be parsed.",
+            "applied_rules": [
+                {"rule_id": "fallback_parse", "pass": False, "evidence": ["response_text"]}
+            ],
+            "policy_decisions": {},
+            "risk_flags": ["unparsed_output"],
+            "confidence_by_claim": {"fallback_claim": 0.0},
+            "evidence_map": {"fallback_claim": ["response_text"]},
+            "uncertainty": {"required": True, "reason": "unparseable output"},
+        }
+    if "verdict" in fields and "scores" in fields:
+        return {
+            "verdict": "reject",
+            "confidence": 0.0,
+            "scores": {
+                "correctness": 0.0,
+                "completeness": 0.0,
+                "reasoning_quality": 0.0,
+                "factuality": 0.0,
+                "robustness": 0.0,
+            },
+            "justification": ["Fallback: model output could not be parsed."],
+            "key_failures": ["unparseable_output"],
+            "required_fixes": ["regenerate_response"],
+            "consistency_checks": {},
+            "tags": ["fallback"],
+        }
+    return {}

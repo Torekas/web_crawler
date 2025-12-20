@@ -1,11 +1,20 @@
 from __future__ import annotations
 
-from model_court.agents.contracts import CandidateAnswer, DefenseRebuttal, JudgeDecision, JudgeScores, ProsecutorCritique
+from model_court.agents.contracts import AppliedRule, CandidateAnswer, DefenseRebuttal, JudgeDecision, JudgeScores, ProsecutorCritique
 from model_court.storage.schema import CaseRecord, RoundRecord
 
 
 def test_case_record_roundtrip_json():
-    cand = CandidateAnswer(final_answer="4", reasoning_summary=["2+2=4"], assumptions=[], citations=[], uncertainty=None)
+    cand = CandidateAnswer(
+        answer="4",
+        reasoning="2+2=4",
+        applied_rules=[AppliedRule(rule_id="answer_present", passed=True, evidence=["answer"])],
+        policy_decisions={},
+        risk_flags=[],
+        confidence_by_claim={"claim_1": 1.0},
+        evidence_map={"claim_1": ["math"]},
+        uncertainty=None,
+    )
     pros = ProsecutorCritique(objections=["show work"], counterexamples=[], missing_assumptions=[], factuality_flags=[], targeted_questions=[])
     defense = DefenseRebuttal(rebuttals=["basic arithmetic"], corrections=[], strengthened_answer=None, resolved_objections=["show work"], unresolved_objections=[])
     judge = JudgeDecision(
@@ -36,4 +45,3 @@ def test_case_record_roundtrip_json():
     case2 = CaseRecord.model_validate_json(s)
     assert case2.case_id == "c1"
     assert case2.rounds[0].judge.verdict == "accept"
-

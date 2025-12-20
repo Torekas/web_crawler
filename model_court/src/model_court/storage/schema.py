@@ -20,6 +20,9 @@ class RoundRecord(BaseModel):
     defense: DefenseRebuttal
     judge: JudgeDecision
     llm_calls: list[LLMCallRecord] = Field(default_factory=list)
+    compliance: dict[str, Any] = Field(
+        default_factory=dict, description="Deterministic validation outputs per round."
+    )
 
 
 class CaseRecord(BaseModel):
@@ -47,4 +50,3 @@ class CaseRecord(BaseModel):
     final_overall_score: float = Field(..., ge=0.0, le=1.0)
 
     metadata: dict[str, Any] = Field(default_factory=dict)
-

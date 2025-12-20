@@ -21,9 +21,25 @@ judge:
   confidence_threshold: 0.75
   require_no_unresolved_objections: true
 
+compliance:
+  confidence_threshold: 0.6
+  required_fields:
+    - answer
+    - reasoning
+    - applied_rules
+    - confidence_by_claim
+    - evidence_map
+  policy_gate:
+    domain_blocklist: []
+    safety_terms:
+      - kill
+      - harm
+      - bomb
+      - suicide
+      - weapon
+
 vector_store:
   embedder: hashing_v1
   dim: 1024
   chunk_chars: 1400
   chunk_overlap: 120
-

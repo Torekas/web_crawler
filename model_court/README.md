@@ -30,6 +30,12 @@ New-Item -ItemType File -Force pyproject.toml, requirements.txt, README.md, conf
 
 Prompts live in `src/model_court/agents/prompts/*.txt` and are schema-constrained: each agent must output a single JSON object.
 
+Candidate schema highlights:
+- `answer` + `reasoning` are required.
+- `applied_rules` is required and must include rule evidence.
+- `confidence_by_claim` and `evidence_map` track claim confidence and sources.
+- `policy_decisions`, `risk_flags`, and `uncertainty` are populated after deterministic validation.
+
 ## 3) Repository Layout
 
 ```
@@ -42,6 +48,11 @@ model_court/
   scripts/               # CLI wrappers
   src/model_court/
     agents/              # prompts + wrappers + contracts
+    compliance_example.py # example deterministic compliance run
+    compliance_orchestrator.py # two-phase compliance pipeline
+    contradiction_detection.py # deterministic contradiction checks
+    policy_gate.py       # deterministic policy enforcement
+    rule_trace.py        # rule registration + validation
     llm/                 # provider interface + mock + optional OpenAI skeleton
     question_gen/        # synthetic generators + benchmark adapters
     simulation/          # orchestrator + stopping logic
@@ -71,16 +82,38 @@ Pseudocode:
 
 Implementation: `src/model_court/simulation/orchestrator.py` (`run_experiment`, `_run_case`).
 
-## 6) Artifact Storage (Canonical JSONL)
+## 6) Compliance and Deterministic Validation
+
+Two-phase pipeline:
+1) Model proposal: generate answer, reasoning, initial rule trace, and confidence by claim.
+2) Deterministic validation: rule evaluation, contradiction detection, policy gate enforcement.
+
+The merged output is stored per round as:
+```
+{
+  "model_proposal": {...},
+  "deterministic_validation": {...},
+  "merged_final_answer": {...}
+}
+```
+
+Key modules:
+- `src/model_court/compliance_orchestrator.py`
+- `src/model_court/rule_trace.py`
+- `src/model_court/policy_gate.py`
+- `src/model_court/contradiction_detection.py`
+
+## 7) Artifact Storage (Canonical JSONL)
 
 Each line in `datasets/raw/<experiment_id>/cases.jsonl` is a `CaseRecord` (`src/model_court/storage/schema.py`) containing:
 - `question` (id/text/answer_key/source/metadata)
 - per-round transcript: `candidate`, `prosecutor`, `defense`, `judge`
+- per-round deterministic validation: `compliance`
 - raw LLM call records per role: prompt, response, parsed JSON (`LLMCallRecord`)
 - `final_answer`, `final_verdict`, `final_overall_score`
 - `metadata.config_snapshot`, timestamps, seeds, experiment ids
 
-## 7) Vector DB Integration (SQLite)
+## 8) Vector DB Integration (SQLite)
 
 - Embedding strategy: embed `question`, `final_answer`, `prosecutor.objections`, `judge.justification`; chunk by `chunk_chars` with `chunk_overlap`.
 - Embedder: `HashingEmbedder` (deterministic local baseline) (`src/model_court/vector_store/embedder.py`).
@@ -91,7 +124,7 @@ Each line in `datasets/raw/<experiment_id>/cases.jsonl` is a `CaseRecord` (`src/
   - Judge consistency checks by retrieving near-duplicate questions and comparing verdicts
   - Training data selection by pulling high-scoring, high-confidence “golden” cases
 
-## 8) Golden Dataset Creation
+## 9) Golden Dataset Creation
 
 Golden export filters cases with rules (`src/model_court/datasets/golden.py`):
 - `final_verdict == "accept"`
@@ -101,7 +134,7 @@ Golden export filters cases with rules (`src/model_court/datasets/golden.py`):
 
 Export format: JSONL of full `CaseRecord` (versioned by `schema_version="case_v1"`). Parquet export can be added as an optional dependency later.
 
-## 9) Iterative Improvement (“Court Curriculum”)
+## 10) Iterative Improvement (“Court Curriculum”)
 
 Recommended loop (config-driven):
 - Mine failure tags + unresolved objections from `cases.jsonl`
@@ -124,6 +157,12 @@ pip install -e ".[dev]"
 
 ```powershell
 model-court-demo --config configs/default.yaml --n 3
+```
+
+### Compliance pipeline example
+
+```powershell
+py -m model_court.compliance_example
 ```
 
 ### Larger run

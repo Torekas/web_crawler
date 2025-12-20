@@ -7,7 +7,10 @@ from typing import Any
 from tqdm import tqdm
 
 from model_court.agents.factory import build_agents
+from model_court.compliance_orchestrator import run_compliance_pipeline
 from model_court.question_gen import JSONLBenchmarkAdapter, SyntheticMathV1
+from model_court.policy_gate import PolicyGateConfig
+from model_court.rule_trace import RuleDefinition, RuleEvaluation, RuleRegistry, register_rule
 from model_court.storage.case_store import CaseStore
 from model_court.storage.schema import CaseRecord, RoundRecord
 from model_court.utils.ids import new_case_id, new_experiment_id
@@ -97,7 +100,19 @@ def _run_case(
     agents: dict[str, Any],
 ) -> CaseRecord:
     rounds: list[RoundRecord] = []
-    candidate_answer_text: str | None = None
+    rule_registry = _build_rule_registry()
+    compliance_cfg = cfg.get("compliance") or {}
+    confidence_threshold = float(compliance_cfg.get("confidence_threshold", 0.6))
+    required_fields = compliance_cfg.get(
+        "required_fields",
+        ["answer", "reasoning", "applied_rules", "confidence_by_claim", "evidence_map"],
+    )
+    policy_cfg = compliance_cfg.get("policy_gate") or {}
+    default_policy = PolicyGateConfig()
+    policy_config = PolicyGateConfig(
+        domain_blocklist=tuple(policy_cfg.get("domain_blocklist", default_policy.domain_blocklist)),
+        safety_terms=tuple(policy_cfg.get("safety_terms", default_policy.safety_terms)),
+    )
 
     for round_idx in range(max_rounds):
         candidate_input = {
@@ -110,25 +125,32 @@ def _run_case(
             ),
         }
         cand, cand_call = agents["candidate"].run(input_json=candidate_input, seed=case_seed + 10 * round_idx)
-        candidate_answer_text = cand.final_answer
+        compliance_output = run_compliance_pipeline(
+            cand,
+            registry=rule_registry,
+            confidence_threshold=confidence_threshold,
+            required_fields=required_fields,
+            policy_config=policy_config,
+        )
+        cand_merged = compliance_output.merged_final_answer
 
         pros_input = {
             "question": question["question"],
-            "candidate_answer": cand.model_dump(),
+            "candidate_answer": cand_merged.model_dump(),
         }
         pros, pros_call = agents["prosecutor"].run(input_json=pros_input, seed=case_seed + 10 * round_idx + 1)
 
         def_input = {
             "question": question["question"],
-            "candidate_answer": cand.model_dump(),
+            "candidate_answer": cand_merged.model_dump(),
             "prosecutor": pros.model_dump(),
         }
         defense, def_call = agents["defense"].run(input_json=def_input, seed=case_seed + 10 * round_idx + 2)
 
         judge_input = {
             "question": question["question"],
-            "candidate_answer": (defense.strengthened_answer or cand.final_answer),
-            "candidate_structured": cand.model_dump(),
+            "candidate_answer": (defense.strengthened_answer or cand_merged.answer),
+            "candidate_structured": cand_merged.model_dump(),
             "prosecutor": pros.model_dump(),
             "defense": defense.model_dump(),
             "rubric": cfg.get("judge") or {},
@@ -138,11 +160,12 @@ def _run_case(
         rounds.append(
             RoundRecord(
                 round_idx=round_idx,
-                candidate=cand,
+                candidate=cand_merged,
                 prosecutor=pros,
                 defense=defense,
                 judge=judge,
                 llm_calls=[cand_call, pros_call, def_call, judge_call],
+                compliance=compliance_output.model_dump(),
             )
         )
 
@@ -150,7 +173,7 @@ def _run_case(
             break
 
     final_round = rounds[-1]
-    final_answer = final_round.defense.strengthened_answer or final_round.candidate.final_answer
+    final_answer = final_round.defense.strengthened_answer or final_round.candidate.answer
     overall = final_round.judge.scores.overall()
     return CaseRecord(
         case_id=case_id,
@@ -167,3 +190,20 @@ def _run_case(
         },
     )
 
+
+def _build_rule_registry() -> RuleRegistry:
+    registry = RuleRegistry()
+
+    def _answer_present(candidate) -> RuleEvaluation:
+        passed = bool(candidate.answer.strip())
+        evidence = ["answer"] if passed else ["answer_missing"]
+        return RuleEvaluation(rule_id="answer_present", passed=passed, evidence=evidence)
+
+    def _reasoning_present(candidate) -> RuleEvaluation:
+        passed = bool(candidate.reasoning.strip())
+        evidence = ["reasoning"] if passed else ["reasoning_missing"]
+        return RuleEvaluation(rule_id="reasoning_present", passed=passed, evidence=evidence)
+
+    register_rule(registry, RuleDefinition("answer_present", "Answer is non-empty.", _answer_present))
+    register_rule(registry, RuleDefinition("reasoning_present", "Reasoning is non-empty.", _reasoning_present))
+    return registry

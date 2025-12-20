@@ -24,14 +24,28 @@ class MockLLM(LLM):
             final = _mock_answer(q)
             return json.dumps(
                 {
-                    "final_answer": final,
-                    "reasoning_summary": [
-                        "Parse the question and identify the target quantity.",
-                        "Apply the relevant rule/calculation.",
-                        "Return the result with units/formatting.",
+                    "answer": final,
+                    "reasoning": (
+                        "Parse the question and identify the target quantity. "
+                        "Apply the relevant rule or calculation. "
+                        "Return the result with correct formatting."
+                    ),
+                    "applied_rules": [
+                        {
+                            "rule_id": "answer_present",
+                            "pass": True,
+                            "evidence": ["answer"],
+                        },
+                        {
+                            "rule_id": "reasoning_present",
+                            "pass": True,
+                            "evidence": ["reasoning"],
+                        },
                     ],
-                    "assumptions": ["Question is self-contained."],
-                    "citations": [],
+                    "policy_decisions": {},
+                    "risk_flags": [],
+                    "confidence_by_claim": {"claim_1": 0.82},
+                    "evidence_map": {"claim_1": ["question_text"]},
                     "uncertainty": None,
                 }
             )
@@ -123,4 +137,3 @@ def _mock_answer(question: str) -> str:
     if "capital of france" in q:
         return "Paris."
     return "Answer: (mock) See reasoning summary."
-
