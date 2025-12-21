@@ -8,6 +8,16 @@ Async, domain-aware crawler and RAG stack tuned for LLM/AI topics. Captures cura
 - **Chat**: Retrieval + recency re-rank + URL validation. When a query looks newsy or the index is stale, it runs a live DuckDuckGo HTML search and scrapes top pages for fresh context. Answers are prefixed with `Answer:` and include inline `[n]` citations plus a References block with titles, links, and fetched times. Full answers are stored in long-term memory even if the UI truncates the display.
 - **Memory**: `data/memory_longterm.jsonl` keeps reflections and conversations; short-term memory grounds the current chat.
 
+## Pipeline overview
+```mermaid
+flowchart LR
+    Crawl["Crawl<br/>src/main.py crawl"] --> Pages["data/pages.jsonl"]
+    Pages --> Index["Index<br/>src/main.py index"]
+    Index --> Vec["data/index.pkl.gz"]
+    Vec --> Chat["Chat<br/>src/main.py chat"]
+    Chat --> Memory["data/memory_longterm.jsonl"]
+```
+
 ## Setup
 - Python 3.10+
 - Install PyTorch with CUDA 11.8 (critical):

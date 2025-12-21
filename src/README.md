@@ -5,17 +5,36 @@ This is a directory-specific split of `docs/modules.md` for the `src/` tree.
 ## System Map (src stack)
 ```mermaid
 flowchart LR
-    CLI[src/main.py] --> Crawl[src/crawler.py]
-    CLI --> Index[src/rag.py - build_index]
-    CLI --> Chat[src/rag.py - interactive_chat]
-    Crawl -->|pages.jsonl| Index
-    Index -->|index.pkl.gz| Chat
-    Crawl --> Memory[src/memory.py]
-    Chat --> Memory
-    Crawl --> Prompts[src/prompts.py]
+    subgraph CliLayer["CLI"]
+        Main["src/main.py"]
+    end
+
+    subgraph CrawlLayer["Crawl"]
+        Crawler["src/crawler.py"]
+        Prompts["src/prompts.py"]
+        LLM["src/llm.py"]
+        Memory["src/memory.py"]
+    end
+
+    subgraph IndexLayer["Indexing"]
+        Indexer["src/rag.py<br/>build_index"]
+    end
+
+    subgraph ChatLayer["Chat"]
+        Chat["src/rag.py<br/>interactive_chat"]
+    end
+
+    Main --> Crawler
+    Main --> Indexer
+    Main --> Chat
+    Crawler -->|pages.jsonl| Indexer
+    Indexer -->|index.pkl.gz| Chat
+    Crawler --> Prompts
+    Crawler --> LLM
+    Crawler --> Memory
     Chat --> Prompts
-    Crawl --> LLM[src/llm.py]
     Chat --> LLM
+    Chat --> Memory
 ```
 
 ## src/main.py

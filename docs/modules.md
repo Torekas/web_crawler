@@ -7,32 +7,80 @@ Charts are included to visualize the main flows.
 ## System Map (src stack)
 ```mermaid
 flowchart LR
-    CLI[src/main.py] --> Crawl[src/crawler.py]
-    CLI --> Index[src/rag.py - build_index]
-    CLI --> Chat[src/rag.py - interactive_chat]
-    Crawl -->|pages.jsonl| Index
-    Index -->|index.pkl.gz| Chat
-    Crawl --> Memory[src/memory.py]
-    Chat --> Memory
-    Crawl --> Prompts[src/prompts.py]
+    subgraph CliLayer["CLI"]
+        Main["src/main.py"]
+    end
+
+    subgraph CrawlLayer["Crawl"]
+        Crawler["src/crawler.py"]
+        Prompts["src/prompts.py"]
+        LLM["src/llm.py"]
+        Memory["src/memory.py"]
+    end
+
+    subgraph IndexLayer["Indexing"]
+        Indexer["src/rag.py<br/>build_index"]
+    end
+
+    subgraph ChatLayer["Chat"]
+        Chat["src/rag.py<br/>interactive_chat"]
+    end
+
+    Main --> Crawler
+    Main --> Indexer
+    Main --> Chat
+    Crawler -->|pages.jsonl| Indexer
+    Indexer -->|index.pkl.gz| Chat
+    Crawler --> Prompts
+    Crawler --> LLM
+    Crawler --> Memory
     Chat --> Prompts
-    Crawl --> LLM[src/llm.py]
     Chat --> LLM
+    Chat --> Memory
 ```
 
 ## System Map (crawl4ai_plus stack)
 ```mermaid
 flowchart LR
-    CLI2[src/crawl4ai_plus/cli.py] --> Service[src/crawl4ai_plus/crawler.py]
-    API[src/crawl4ai_plus/api.py] --> Service
-    Service --> Fetcher[src/crawl4ai_plus/http_fetcher.py]
-    Service --> Browser[src/crawl4ai_plus/browser_fetcher.py]
-    Service --> Cleaner[src/crawl4ai_plus/markdown_cleaner.py]
-    Service --> Dedup[src/crawl4ai_plus/dedup.py]
-    Service --> Storage[src/crawl4ai_plus/storage.py]
-    Service --> Chunker[src/crawl4ai_plus/chunker.py]
-    Service --> Indexer[src/crawl4ai_plus/indexer.py]
-    Chat2[src/crawl4ai_plus/chat.py] --> Indexer
+    subgraph EntryPoints["Entry points"]
+        CLI["cli.py"]
+        API["api.py"]
+    end
+
+    subgraph ServiceLayer["Crawl service"]
+        CrawlSvc["crawler.py<br/>CrawlService"]
+    end
+
+    subgraph FetchingLayer["Fetching"]
+        Http["http_fetcher.py"]
+        Browser["browser_fetcher.py"]
+    end
+
+    subgraph ProcessingLayer["Processing"]
+        Cleaner["markdown_cleaner.py"]
+        Dedup["dedup.py"]
+        Chunker["chunker.py"]
+    end
+
+    subgraph StorageIndexLayer["Storage + index"]
+        Storage["storage.py"]
+        Indexer["indexer.py"]
+    end
+
+    subgraph ChatLayer["Chat"]
+        Chat["chat.py"]
+    end
+
+    CLI --> CrawlSvc
+    API --> CrawlSvc
+    CrawlSvc --> Http
+    CrawlSvc --> Browser
+    CrawlSvc --> Cleaner
+    CrawlSvc --> Dedup
+    CrawlSvc --> Chunker
+    CrawlSvc --> Storage
+    CrawlSvc --> Indexer
+    Chat --> Indexer
 ```
 
 ## Storage Schema (crawl4ai_plus)
@@ -491,8 +539,22 @@ Output:
 ## scripts flow
 ```mermaid
 flowchart LR
-    ReadMem[data/memory_longterm.jsonl] --> Clean[dedupe + normalize kinds]
-    ReadPages[data/pages.jsonl] --> Add[add missing page entries]
-    Clean --> Write[write memory_longterm.jsonl]
+    subgraph Inputs["Inputs"]
+        Mem["data/memory_longterm.jsonl"]
+        Pages["data/pages.jsonl"]
+    end
+
+    subgraph Process["Process"]
+        Clean["Dedupe + normalize kinds"]
+        Add["Add missing page entries"]
+    end
+
+    subgraph Output["Output"]
+        Write["Rewrite memory_longterm.jsonl"]
+    end
+
+    Mem --> Clean
+    Pages --> Add
+    Clean --> Write
     Add --> Write
 ```

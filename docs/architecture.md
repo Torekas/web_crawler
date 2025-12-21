@@ -9,15 +9,35 @@
 ## Crawl Workflow
 ```mermaid
 flowchart LR
-    Seeds[Seed URLs\n(default AI lab blogs)] --> Queue
-    Queue -->|concurrent| Fetch[aiohttp fetch\n+ UA rotation]
-    Fetch --> Clean[Parse & clean HTML]
-    Clean --> Filter[Heuristic keywords\n+ optional LLM judge\n+ verification]
-    Filter -->|skip| Reflexion[Reflexion note -> memory]
-    Filter -->|keep| Persist[Write JSONL (dedup)]
-    Persist --> Links[Extract links\nwithin allowed domains]
-    Links --> Queue
-    Fetch -.fallback on error.-> Sync[requests.get fallback]
+    subgraph Discovery
+        Seeds["Seed URLs<br/>AI lab blogs (default)"]
+        News["DuckDuckGo<br/>news discovery"]
+    end
+
+    subgraph Crawl
+        Queue["URL queue"]
+        Fetch["Async fetch<br/>aiohttp + UA rotation"]
+        Fallback["Sync fallback<br/>requests.get"]
+        Clean["Parse + clean HTML"]
+        Filter["Heuristic filter<br/>LLM judge + verify"]
+    end
+
+    subgraph Persist
+        Keep["Write JSONL<br/>deduped"]
+        Links["Extract links<br/>allowed domains"]
+        Skip["Reflexion note<br/>to memory"]
+    end
+
+    Seeds --> Queue
+    News --> Queue
+    Queue -->|concurrent| Fetch
+    Fetch -.error.-> Fallback
+    Fetch --> Clean
+    Fallback --> Clean
+    Clean --> Filter
+    Filter -->|keep| Keep
+    Filter -->|skip| Skip
+    Keep --> Links --> Queue
 ```
 
 Notes:
@@ -32,14 +52,15 @@ sequenceDiagram
     participant Agent as ConversationalRAGAgent
     participant Index
     participant LLM
-    User->>Agent: question
-    Agent->>Index: search + recency re-rank
-    Agent->>Agent: drop low scores / unreachable URLs
-    Agent->>LLM: build messages with [n] context\n+ memories
-    LLM-->>Agent: answer text
-    Agent->>Agent: format Answer + References\n(optional truncate for UI)
-    Agent-->>User: display_answer
-    Agent->>Memory: store full answer + sources\nstore preview if truncated
+    participant Memory
+    User->>Agent: Ask question
+    Agent->>Index: Retrieve top-k + recency rerank
+    Agent->>Agent: Drop low scores / dead URLs
+    Agent->>LLM: Build prompt with references<br/>+ memories
+    LLM-->>Agent: Answer text
+    Agent->>Agent: Format Answer + References<br/>Optional truncation
+    Agent-->>User: Display answer
+    Agent->>Memory: Store full answer + sources<br/>Store preview if truncated
 ```
 
 Answer format:

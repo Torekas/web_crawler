@@ -19,8 +19,22 @@ Output:
 ## scripts flow
 ```mermaid
 flowchart LR
-    ReadMem[data/memory_longterm.jsonl] --> Clean[dedupe + normalize kinds]
-    ReadPages[data/pages.jsonl] --> Add[add missing page entries]
-    Clean --> Write[write memory_longterm.jsonl]
+    subgraph Inputs["Inputs"]
+        Mem["data/memory_longterm.jsonl"]
+        Pages["data/pages.jsonl"]
+    end
+
+    subgraph Process["Process"]
+        Clean["Dedupe + normalize kinds"]
+        Add["Add missing page entries"]
+    end
+
+    subgraph Output["Output"]
+        Write["Rewrite memory_longterm.jsonl"]
+    end
+
+    Mem --> Clean
+    Pages --> Add
+    Clean --> Write
     Add --> Write
 ```
