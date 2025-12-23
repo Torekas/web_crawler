@@ -1,4 +1,4 @@
-__pycache__/
+﻿__pycache__/
 *.py[cod]
 *.log
 .env
@@ -8,3 +8,5 @@ venv/
 data/
 *.pkl
 *.pkl.gz
+# ai_news_crawler
+ai_news_crawler/db/
